@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { productsAPI, categoriesAPI } from '../services/api';
 import '../styles/CategoryForm.css';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://beautix.netlify.app';
 
 function ProductForm({ product, onSuccess, onCancel }) {
     const [formData, setFormData] = useState({
         name: '',
         description: '',
+        landingSections: [],
         category: '',
         prixAvantRemise: '',
         prixApresRemise: '',
@@ -20,8 +21,11 @@ function ProductForm({ product, onSuccess, onCancel }) {
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadingSection, setUploadingSection] = useState(false);
     const [error, setError] = useState('');
     const [draggedIndex, setDraggedIndex] = useState(null);
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [draggedSectionIndex, setDraggedSectionIndex] = useState(null);
 
     useEffect(() => {
         fetchCategories();
@@ -29,6 +33,7 @@ function ProductForm({ product, onSuccess, onCancel }) {
             setFormData({
                 name: product.name,
                 description: product.description,
+                landingSections: product.landingSections || [],
                 category: product.category._id || product.category,
                 prixAvantRemise: product.prixAvantRemise,
                 prixApresRemise: product.prixApresRemise || '',
@@ -50,6 +55,7 @@ function ProductForm({ product, onSuccess, onCancel }) {
         }
     };
 
+    // ===== Product Images =====
     const handleImageUpload = async (e) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
@@ -80,20 +86,27 @@ function ProductForm({ product, onSuccess, onCancel }) {
             }
         } catch (err) {
             setError('Erreur lors du téléchargement');
-            console.error('Upload error:', err);
         } finally {
             setUploading(false);
         }
     };
 
-    const removeImage = (index) => {
-        setFormData(prev => ({
-            ...prev,
-            images: prev.images.filter((_, i) => i !== index)
-        }));
+    const confirmRemoveImage = (index) => {
+        setDeleteConfirm({ type: 'image', index });
+    };
+
+    const removeImage = () => {
+        if (deleteConfirm?.type === 'image') {
+            setFormData(prev => ({
+                ...prev,
+                images: prev.images.filter((_, i) => i !== deleteConfirm.index)
+            }));
+        }
+        setDeleteConfirm(null);
     };
 
     const moveImage = (fromIndex, toIndex) => {
+        if (toIndex < 0 || toIndex >= formData.images.length) return;
         const newImages = [...formData.images];
         const [movedImage] = newImages.splice(fromIndex, 1);
         newImages.splice(toIndex, 0, movedImage);
@@ -108,7 +121,6 @@ function ProductForm({ product, onSuccess, onCancel }) {
     const handleDragOver = (e, index) => {
         e.preventDefault();
         if (draggedIndex === null || draggedIndex === index) return;
-
         moveImage(draggedIndex, index);
         setDraggedIndex(index);
     };
@@ -117,6 +129,96 @@ function ProductForm({ product, onSuccess, onCancel }) {
         setDraggedIndex(null);
     };
 
+    // ===== Landing Sections =====
+    const addTextSection = () => {
+        const newSection = {
+            type: 'text',
+            content: '',
+            order: formData.landingSections.length
+        };
+        setFormData(prev => ({
+            ...prev,
+            landingSections: [...prev.landingSections, newSection]
+        }));
+    };
+
+    const addImageSection = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploadingSection(true);
+        try {
+            const formDataUpload = new FormData();
+            formDataUpload.append('image', file);
+
+            const response = await fetch(`${API_URL}/upload/single`, {
+                method: 'POST',
+                body: formDataUpload,
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const newSection = {
+                    type: 'image',
+                    content: data.data.url,
+                    order: formData.landingSections.length
+                };
+                setFormData(prev => ({
+                    ...prev,
+                    landingSections: [...prev.landingSections, newSection]
+                }));
+            }
+        } catch (err) {
+            setError('Erreur lors du téléchargement');
+        } finally {
+            setUploadingSection(false);
+        }
+    };
+
+    const updateSection = (index, content) => {
+        const newSections = [...formData.landingSections];
+        newSections[index] = { ...newSections[index], content };
+        setFormData(prev => ({ ...prev, landingSections: newSections }));
+    };
+
+    const removeSection = (index) => {
+        setFormData(prev => ({
+            ...prev,
+            landingSections: prev.landingSections
+                .filter((_, i) => i !== index)
+                .map((s, i) => ({ ...s, order: i }))
+        }));
+    };
+
+    const moveSection = (fromIndex, toIndex) => {
+        if (toIndex < 0 || toIndex >= formData.landingSections.length) return;
+        const newSections = [...formData.landingSections];
+        const [movedSection] = newSections.splice(fromIndex, 1);
+        newSections.splice(toIndex, 0, movedSection);
+        setFormData(prev => ({
+            ...prev,
+            landingSections: newSections.map((s, i) => ({ ...s, order: i }))
+        }));
+    };
+
+    const handleSectionDragStart = (e, index) => {
+        setDraggedSectionIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleSectionDragOver = (e, index) => {
+        e.preventDefault();
+        if (draggedSectionIndex === null || draggedSectionIndex === index) return;
+        moveSection(draggedSectionIndex, index);
+        setDraggedSectionIndex(index);
+    };
+
+    const handleSectionDragEnd = () => {
+        setDraggedSectionIndex(null);
+    };
+
+    // ===== Form Submit =====
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -149,13 +251,37 @@ function ProductForm({ product, onSuccess, onCancel }) {
         }));
     };
 
+    const getImageLabel = (index) => {
+        if (index === 0) return 'Image Principale';
+        return `Image ${index + 1}`;
+    };
+
     return (
         <div className="form-container">
             <h2>{product ? 'Modifier Produit' : 'Nouveau Produit'}</h2>
 
             {error && <div className="error-message">{error}</div>}
 
+            {/* Delete Confirmation Modal */}
+            {deleteConfirm !== null && (
+                <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <h3>Confirmer la suppression</h3>
+                        <p>Voulez-vous vraiment supprimer cette image ?</p>
+                        <div className="modal-actions">
+                            <button type="button" className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>
+                                Annuler
+                            </button>
+                            <button type="button" className="btn" style={{ background: 'var(--error)' }} onClick={removeImage}>
+                                Supprimer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <form onSubmit={handleSubmit}>
+                {/* Basic Info */}
                 <div className="form-group">
                     <label>Nom du produit *</label>
                     <input
@@ -168,130 +294,81 @@ function ProductForm({ product, onSuccess, onCancel }) {
                 </div>
 
                 <div className="form-group">
-                    <label>Description *</label>
+                    <label>Description courte *</label>
                     <textarea
                         name="description"
                         value={formData.description}
                         onChange={handleChange}
                         required
+                        rows={3}
                     />
                 </div>
 
                 <div className="form-row">
                     <div className="form-group">
                         <label>Catégorie *</label>
-                        <select
-                            name="category"
-                            value={formData.category}
-                            onChange={handleChange}
-                            required
-                        >
+                        <select name="category" value={formData.category} onChange={handleChange} required>
                             <option value="">Sélectionner une catégorie</option>
                             {categories.map(cat => (
                                 <option key={cat._id} value={cat._id}>{cat.title}</option>
                             ))}
                         </select>
                     </div>
-
                     <div className="form-group">
                         <label>Stock *</label>
-                        <input
-                            type="number"
-                            name="stock"
-                            value={formData.stock}
-                            onChange={handleChange}
-                            min="0"
-                            required
-                        />
+                        <input type="number" name="stock" value={formData.stock} onChange={handleChange} min="0" required />
                     </div>
                 </div>
 
                 <div className="form-row">
                     <div className="form-group">
                         <label>Prix avant remise (€) *</label>
-                        <input
-                            type="number"
-                            name="prixAvantRemise"
-                            value={formData.prixAvantRemise}
-                            onChange={handleChange}
-                            min="0"
-                            step="0.01"
-                            required
-                        />
+                        <input type="number" name="prixAvantRemise" value={formData.prixAvantRemise} onChange={handleChange} min="0" step="0.01" required />
                     </div>
-
                     <div className="form-group">
                         <label>Prix après remise (€)</label>
-                        <input
-                            type="number"
-                            name="prixApresRemise"
-                            value={formData.prixApresRemise}
-                            onChange={handleChange}
-                            min="0"
-                            step="0.01"
-                        />
+                        <input type="number" name="prixApresRemise" value={formData.prixApresRemise} onChange={handleChange} min="0" step="0.01" />
                     </div>
-
                     <div className="form-group">
                         <label>Frais de livraison (€)</label>
-                        <input
-                            type="number"
-                            name="fraisLivraison"
-                            value={formData.fraisLivraison}
-                            onChange={handleChange}
-                            min="0"
-                            step="0.01"
-                        />
+                        <input type="number" name="fraisLivraison" value={formData.fraisLivraison} onChange={handleChange} min="0" step="0.01" />
                     </div>
                 </div>
 
                 <div className="form-row">
                     <div className="form-group">
                         <label>Statut</label>
-                        <select
-                            name="status"
-                            value={formData.status}
-                            onChange={handleChange}
-                        >
+                        <select name="status" value={formData.status} onChange={handleChange}>
                             <option value="visible">Visible</option>
                             <option value="hidden">Caché</option>
                         </select>
                     </div>
-
                     <div className="form-group">
                         <label>
-                            <input
-                                type="checkbox"
-                                name="featured"
-                                checked={formData.featured}
-                                onChange={handleChange}
-                                style={{ width: 'auto', marginRight: '0.5rem' }}
-                            />
+                            <input type="checkbox" name="featured" checked={formData.featured} onChange={handleChange} style={{ width: 'auto', marginRight: '0.5rem' }} />
                             Produit en vedette
                         </label>
                     </div>
                 </div>
 
+                {/* Product Images */}
                 <div className="form-group">
-                    <label>Images * (La première image sera l'image principale)</label>
+                    <label>Images du produit *</label>
                     <div className="image-upload">
-                        <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={handleImageUpload}
-                            style={{ display: 'none' }}
-                            id="product-images"
-                            disabled={uploading}
-                        />
-                        <label htmlFor="product-images" className="btn-upload">
-                            {uploading ? 'Téléchargement...' : '+ Ajouter des images'}
-                        </label>
+                        {uploading ? (
+                            <div className="upload-skeleton">
+                                <div className="skeleton-box"></div>
+                                <p>Téléchargement...</p>
+                            </div>
+                        ) : (
+                            <>
+                                <input type="file" accept="image/*" multiple onChange={handleImageUpload} style={{ display: 'none' }} id="product-images" />
+                                <label htmlFor="product-images" className="btn-upload">+ Ajouter des images</label>
+                            </>
+                        )}
 
                         {formData.images.length > 0 && (
-                            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-gray-50)', borderRadius: '8px', fontSize: '0.875rem', color: 'var(--text-gray)' }}>
-                                💡 Glissez-déposez les images pour changer l'ordre. Image #1 = Image principale frontend
-                            </div>
+                            <div className="image-help">💡 Glissez pour réorganiser • Image 1 = Image principale</div>
                         )}
 
                         {formData.images.length > 0 && (
@@ -307,41 +384,79 @@ function ProductForm({ product, onSuccess, onCancel }) {
                                     >
                                         <img src={image.url} alt={`Product ${index + 1}`} />
                                         <div className="image-controls">
-                                            <span className="image-order">{index + 1}</span>
-                                            <button
-                                                type="button"
-                                                className="remove-btn"
-                                                onClick={() => removeImage(index)}
-                                                title="Supprimer"
-                                            >
-                                                ×
-                                            </button>
+                                            <span className={`image-label ${index === 0 ? 'main' : ''}`}>{getImageLabel(index)}</span>
+                                            <button type="button" className="remove-btn" onClick={() => confirmRemoveImage(index)}>×</button>
                                         </div>
                                         <div className="move-buttons">
-                                            <button
-                                                type="button"
-                                                className="move-btn"
-                                                onClick={() => moveImage(index, index - 1)}
-                                                disabled={index === 0}
-                                                title="Déplacer à gauche"
-                                            >
-                                                ←
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="move-btn"
-                                                onClick={() => moveImage(index, index + 1)}
-                                                disabled={index === formData.images.length - 1}
-                                                title="Déplacer à droite"
-                                            >
-                                                →
-                                            </button>
+                                            <button type="button" className="move-btn" onClick={() => moveImage(index, index - 1)} disabled={index === 0}>←</button>
+                                            <button type="button" className="move-btn" onClick={() => moveImage(index, index + 1)} disabled={index === formData.images.length - 1}>→</button>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Landing Sections Builder */}
+                <div className="form-group">
+                    <label>Sections Landing Page (optionnel)</label>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-gray)', marginBottom: '1rem' }}>
+                        Ajoutez des blocs de texte et d'images qui s'afficheront en bas de la page produit
+                    </p>
+
+                    <div className="section-buttons">
+                        <button type="button" className="btn-add-section" onClick={addTextSection}>
+                            + Ajouter Texte
+                        </button>
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={addImageSection}
+                            style={{ display: 'none' }}
+                            id="section-image"
+                            disabled={uploadingSection}
+                        />
+                        <label htmlFor="section-image" className="btn-add-section">
+                            {uploadingSection ? 'Chargement...' : '+ Ajouter Image'}
+                        </label>
+                    </div>
+
+                    {formData.landingSections.length > 0 && (
+                        <div className="sections-list">
+                            {formData.landingSections.map((section, index) => (
+                                <div
+                                    key={index}
+                                    className={`section-item ${draggedSectionIndex === index ? 'dragging' : ''}`}
+                                    draggable
+                                    onDragStart={(e) => handleSectionDragStart(e, index)}
+                                    onDragOver={(e) => handleSectionDragOver(e, index)}
+                                    onDragEnd={handleSectionDragEnd}
+                                >
+                                    <div className="section-header">
+                                        <span className="section-order">{index + 1}</span>
+                                        <span className="section-type">{section.type === 'text' ? '📝 Texte' : '🖼️ Image'}</span>
+                                        <div className="section-actions">
+                                            <button type="button" onClick={() => moveSection(index, index - 1)} disabled={index === 0}>↑</button>
+                                            <button type="button" onClick={() => moveSection(index, index + 1)} disabled={index === formData.landingSections.length - 1}>↓</button>
+                                            <button type="button" onClick={() => removeSection(index)} className="delete">×</button>
+                                        </div>
+                                    </div>
+
+                                    {section.type === 'text' ? (
+                                        <textarea
+                                            value={section.content}
+                                            onChange={(e) => updateSection(index, e.target.value)}
+                                            placeholder="Entrez votre texte ici..."
+                                            rows={3}
+                                        />
+                                    ) : (
+                                        <img src={section.content} alt={`Section ${index + 1}`} className="section-image-preview" />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="form-actions">

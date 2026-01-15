@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://beautix.netlify.app';
 
 // Generic API call handler
 const apiCall = async (endpoint, options = {}) => {
